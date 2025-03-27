@@ -1,32 +1,32 @@
 kind: ConfigMap
 apiVersion: v1
 metadata:
-  name: template
+  name: llama31-template
   labels:
-    app: vllm
+    app: watt-8b
 data:
-  tool_chat_template_llama3.2_json.jinja: |
-    {{- bos_token }} {%- if custom_tools is defined %}
+  tool_chat_template_llama3.1_json.jinja: |
+    {{- bos_token }}
+    {%- if custom_tools is defined %}
         {%- set tools = custom_tools %}
-    {%- endif %} {%- if not tools_in_user_message is defined %}
-        {%- set tools_in_user_message = false %}
-    {%- endif %} {%- if not date_string is defined %}
+    {%- endif %}
+    {%- if not tools_in_user_message is defined %}
+        {#- Llama 3.1 doesn't pass all tests if the tools are in the system prompt #}
+        {%- set tools_in_user_message = true %}
+    {%- endif %}
+    {%- if not date_string is defined %}
         {%- if strftime_now is defined %}
             {%- set date_string = strftime_now("%d %b %Y") %}
         {%- else %}
             {%- set date_string = "26 Jul 2024" %}
         {%- endif %}
-    {%- endif %} {%- if not tools is defined %}
+    {%- endif %}
+    {%- if not tools is defined %}
         {%- set tools = none %}
     {%- endif %}
-    {#- Find out if there are any images #} {% set image_ns = namespace(has_images=false) %} {%- for message in messages %}
-        {%- for content in message['content'] %}
-            {%- if content['type'] == 'image' %}
-                {%- set image_ns.has_images = true %}
-            {%- endif %}
-        {%- endfor %}
-    {%- endfor %}
-    {#- This block extracts the system message, so we can slot it into the right place. #} {%- if messages[0]['role'] == 'system' %}
+
+    {#- This block extracts the system message, so we can slot it into the right place. #}
+    {%- if messages[0]['role'] == 'system' %}
         {%- if messages[0]['content'] is string %}
             {%- set system_message = messages[0]['content']|trim %}
         {%- else %}
@@ -40,26 +40,28 @@ data:
             {%- set system_message = "" %}
         {%- endif %}
     {%- endif %}
-    {#- System message if there are no images, if the user supplied one, or if tools are used (default tool system message) #} {%- if system_message or not image_ns.has_images %}
-        {{- "<|start_header_id|>system<|end_header_id|>\n\n" }}
-        {%- if tools is not none %}
-            {{- "Environment: ipython\n" }}
-        {%- endif %}
-        {{- "Cutting Knowledge Date: December 2023\n" }}
-        {{- "Today Date: " + date_string + "\n\n" }}
-        {%- if tools is not none and not tools_in_user_message %}
-            {{- "You have access to the following functions. To call a function, please respond with JSON for a function call. " }}
-            {{- 'Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}. ' }}
-            {{- "Do not use variables.\n\n" }}
-            {%- for t in tools %}
-                {{- t | tojson(indent=4) }}
-                {{- "\n\n" }}
-            {%- endfor %}
-        {%- endif %}
-        {{- system_message }}
-        {{- "<|eot_id|>" }}
+
+    {#- System message #}
+    {{- "<|start_header_id|>system<|end_header_id|>\n\n" }}
+    {%- if tools is not none %}
+        {{- "Environment: ipython\n" }}
     {%- endif %}
-    {#- Custom tools are passed in a user message with some extra guidance #} {%- if tools_in_user_message and not tools is none %}
+    {{- "Cutting Knowledge Date: December 2023\n" }}
+    {{- "Today Date: " + date_string + "\n\n" }}
+    {%- if tools is not none and not tools_in_user_message %}
+        {{- "You have access to the following functions. To call a function, please respond with JSON for a function call. " }}
+        {{- 'Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}. ' }}
+        {{- "Do not use variables.\n\n" }}
+        {%- for t in tools %}
+            {{- t | tojson(indent=4) }}
+            {{- "\n\n" }}
+        {%- endfor %}
+    {%- endif %}
+    {{- system_message }}
+    {{- "<|eot_id|>" }}
+
+    {#- Custom tools are passed in a user message with some extra guidance #}
+    {%- if tools_in_user_message and not tools is none %}
         {#- Extract the first user message so we can plug it in here #}
         {%- if messages | length != 0 %}
             {%- if messages[0]['content'] is string %}
@@ -82,6 +84,7 @@ data:
         {%- endfor %}
         {{- first_user_message + "<|eot_id|>"}}
     {%- endif %}
+
     {%- for message in messages %}
         {%- if not (message.role == 'ipython' or message.role == 'tool' or 'tool_calls' in message) %}
             {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' }}
@@ -89,9 +92,7 @@ data:
                 {{- message['content'] | trim}}
             {%- else %}
                 {%- for content in message['content'] %}
-                    {%- if content['type'] == 'image' %}
-                        {{- '<|image|>' }}
-                    {%- elif content['type'] == 'text' %}
+                    {%- if content['type'] == 'text' %}
                         {{- content['text'] | trim }}
                     {%- endif %}
                 {%- endfor %}
@@ -121,6 +122,7 @@ data:
             {%- endif %}
             {{- "<|eot_id|>" }}
         {%- endif %}
-    {%- endfor %} {%- if add_generation_prompt %}
+    {%- endfor %}
+    {%- if add_generation_prompt %}
         {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
     {%- endif %}
